@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minervini Real-time Trend Viewer</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #131722;
+            color: #d1d4dc;
+            margin: 0;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 600px;
+            text-align: center;
+        }
+        h2 {
+            color: #00adb5;
+            margin-bottom: 5px;
+            font-size: 1.4rem;
+        }
+        .subtitle {
+            font-size: 0.85rem;
+            color: #00adb5;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        .search-box {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+        input {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #363c4e;
+            background-color: #1c2030;
+            color: #fff;
+            border-radius: 6px;
+            font-size: 1rem;
+        }
+        button {
+            padding: 12px 20px;
+            background-color: #00adb5;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 1rem;
+        }
+        button:hover {
+            background-color: #008c95;
+        }
+        .legend {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 15px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .chart-box {
+            background-color: #1c2030;
+            border-radius: 8px;
+            border: 1px solid #2a2e39;
+            padding: 10px;
+            margin-bottom: 15px;
+            position: relative;
+        }
+        .guide {
+            margin-top: 15px;
+            font-size: 0.85rem;
+            color: #787b86;
+            line-height: 1.5;
+            text-align: left;
+            background: #1c2030;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #2a2e39;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #00adb5;
+            font-weight: bold;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Minervini 50·150·200 SMA</h2>
+    <div class="subtitle">🌐 LIVE WEB VERSION</div>
+
+    <div class="legend">
+        <div class="legend-item"><span class="dot" style="background-color: #22c55e;"></span> 50 SMA</div>
+        <div class="legend-item"><span class="dot" style="background-color: #eab308;"></span> 150 SMA</div>
+        <div class="legend-item"><span class="dot" style="background-color: #ef4444;"></span> 200 SMA</div>
+        <div class="legend-item"><span class="dot" style="background-color: rgba(34, 197, 94, 0.25); border: 1px solid #22c55e;"></span> 미너비니 정배열 구간</div>
+    </div>
+    
+    <div class="search-box">
+        <input type="text" id="tickerInput" placeholder="티커 입력 (예: SOFI, TSLA, AAPL)" value="SOFI" onkeyup="if(window.event.keyCode==13){loadChart()}">
+        <button onclick="loadChart()">조회</button>
+    </div>
+
+    <div class="chart-box">
+        <div id="loading">데이터 불러오는 중...</div>
+        <canvas id="myChart" style="width:100%; height:320px;"></canvas>
+    </div>
+
+    <div class="guide">
+        <strong>💡 차트 실시간 판정 가이드:</strong><br>
+        • <strong>초록색(연두) 음영이 깔려 있는 영역:</strong> 주가 > 50 SMA > 150 SMA > 200 SMA 조건을 만족하는 미너비니 상승 2단계 진입 구간입니다.
+    </div>
+</div>
+
+<script>
+    let chartInstance = null;
+
+    async function loadChart() {
+        const ticker = document.getElementById('tickerInput').value.trim().toUpperCase();
+        if (!ticker) return;
+
+        document.getElementById('loading').style.display = 'block';
+
+        try {
+            // 야후 파이낸스 실시간 시세 주소로 우회 차단 없는 고속 데이터 요청
+            const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1y`);
+            const data = await res.json();
+            
+            const result = data.chart.result[0];
+            const timestamps = result.timestamp;
+            const closes = result.indicators.quote[0].close;
+
+            let labels = [];
+            let prices = [];
+            let s50 = [];
+            let s150 = [];
+            let s200 = [];
+            let highlightData = [];
+
+            // 타임스탬프를 보기 편한 날짜 포맷으로 변환 및 데이터 정제
+            for (let i = 0; i < timestamps.length; i++) {
+                // null 값 건너뛰기
+                if (closes[i] === null) continue;
+
+                let date = new Date(timestamps[i] * 1000);
+                labels.push(date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }));
+                prices.push(parseFloat(closes[i].toFixed(2)));
+            }
+
+            // 실시간 이동평균선 연산
+            for (let i = 0; i < prices.length; i++) {
+                let currentPrice = prices[i];
+                let sma50Val = calculateSMA(prices, i, 50);
+                let sma150Val = calculateSMA(prices, i, 150);
+                let sma200Val = calculateSMA(prices, i, 200);
+
+                s50.push(sma50Val);
+                s150.push(sma150Val);
+                s200.push(sma200Val);
+
+                // 실시간 미너비니 정배열 연산 (주가 > 50 > 150 > 200)
+                if (sma50Val && sma150Val && sma200Val && currentPrice > sma50Val && sma50Val > sma150Val && sma150Val > sma200Val) {
+                    highlightData.push(currentPrice);
+                } else {
+                    highlightData.push(null);
+                }
+            }
+
+            // 최근 120일치 거래일로 데이터 슬라이싱 (가장 보기 좋은 밀도 제공)
+            const viewCount = 120;
+            drawChartUI(
+                labels.slice(-viewCount),
+                prices.slice(-viewCount),
+                s50.slice(-viewCount),
+                s150.slice(-viewCount),
+                s200.slice(-viewCount),
+                highlightData.slice(-viewCount)
+            );
+
+        } catch (e) {
+            alert('데이터 로드 실패! 인터넷 연결이나 티커명을 확인해 주세요.');
+            console.error(e);
+        } finally {
+            document.getElementById('loading').style.display = 'none';
+        }
+    }
+
+    function calculateSMA(data, currentIndex, period) {
+        if (currentIndex < period - 1) return null;
+        let sum = 0;
+        for (let i = 0; i < period; i++) {
+            sum += data[currentIndex - i];
+        }
+        return parseFloat((sum / period).toFixed(2));
+    }
+
+    function drawChartUI(labels, prices, s50, s150, s200, highlightData) {
+        if (chartInstance) {
+            chartInstance.destroy();
+        }
+
+        const ctx = document.getElementById('myChart').getContext('2d');
+        chartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: '미너비니 구간',
+                        data: highlightData,
+                        borderColor: 'transparent',
+                        backgroundColor: 'rgba(34, 197, 94, 0.22)',
+                        fill: 'origin',
+                        pointRadius: 0,
+                        order: 5
+                    },
+                    { label: '주가', data: prices, borderColor: '#ffffff', borderWidth: 2, pointRadius: 0, fill: false, order: 1 },
+                    { label: '50 SMA', data: s50, borderColor: '#22c55e', borderWidth: 1.5, pointRadius: 0, fill: false, order: 2 },
+                    { label: '150 SMA', data: s150, borderColor: '#eab308', borderWidth: 1.5, pointRadius: 0, fill: false, order: 3 },
+                    { label: '200 SMA', data: s200, borderColor: '#ef4444', borderWidth: 1.5, pointRadius: 0, fill: false, order: 4 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { color: '#2a2e39' }, ticks: { color: '#d1d4dc', maxTicksLimit: 6 } },
+                    y: { grid: { color: '#2a2e39' }, ticks: { color: '#d1d4dc' } }
+                }
+            }
+        });
+    }
+
+    window.onload = function() {
+        loadChart();
+    };
+</script>
+
+</body>
+</html>
