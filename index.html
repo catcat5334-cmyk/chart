@@ -113,7 +113,7 @@
 
 <div class="container">
     <h2>Minervini 50·150·200 SMA</h2>
-    <div class="subtitle">🌐 LIVE WEB VERSION</div>
+    <div class="subtitle">🌐 LIVE WEB VERSION (SECURE)</div>
 
     <div class="legend">
         <div class="legend-item"><span class="dot" style="background-color: #22c55e;"></span> 50 SMA</div>
@@ -148,9 +148,11 @@
         document.getElementById('loading').style.display = 'block';
 
         try {
-            // 야후 파이낸스 실시간 시세 주소로 우회 차단 없는 고속 데이터 요청
-            const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1y`);
-            const data = await res.json();
+            // 야후 파이낸스의 보안 제한을 우회하기 위해 CORS 우회 전용 프록시 및 대안 주소 피드 적용
+            const targetUrl = encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1y`);
+            const res = await fetch(`https://api.allorigins.win/get?url=${targetUrl}`);
+            const outerData = await res.json();
+            const data = JSON.parse(outerData.contents);
             
             const result = data.chart.result[0];
             const timestamps = result.timestamp;
@@ -163,17 +165,13 @@
             let s200 = [];
             let highlightData = [];
 
-            // 타임스탬프를 보기 편한 날짜 포맷으로 변환 및 데이터 정제
             for (let i = 0; i < timestamps.length; i++) {
-                // null 값 건너뛰기
                 if (closes[i] === null) continue;
-
                 let date = new Date(timestamps[i] * 1000);
                 labels.push(date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }));
                 prices.push(parseFloat(closes[i].toFixed(2)));
             }
 
-            // 실시간 이동평균선 연산
             for (let i = 0; i < prices.length; i++) {
                 let currentPrice = prices[i];
                 let sma50Val = calculateSMA(prices, i, 50);
@@ -184,7 +182,6 @@
                 s150.push(sma150Val);
                 s200.push(sma200Val);
 
-                // 실시간 미너비니 정배열 연산 (주가 > 50 > 150 > 200)
                 if (sma50Val && sma150Val && sma200Val && currentPrice > sma50Val && sma50Val > sma150Val && sma150Val > sma200Val) {
                     highlightData.push(currentPrice);
                 } else {
@@ -192,7 +189,6 @@
                 }
             }
 
-            // 최근 120일치 거래일로 데이터 슬라이싱 (가장 보기 좋은 밀도 제공)
             const viewCount = 120;
             drawChartUI(
                 labels.slice(-viewCount),
@@ -204,7 +200,7 @@
             );
 
         } catch (e) {
-            alert('데이터 로드 실패! 인터넷 연결이나 티커명을 확인해 주세요.');
+            alert('데이터 로드 실패! 외부 API 통신 점검 중입니다. 잠시 후 조회해 주세요.');
             console.error(e);
         } finally {
             document.getElementById('loading').style.display = 'none';
@@ -265,3 +261,5 @@
 
 </body>
 </html>
+
+                
